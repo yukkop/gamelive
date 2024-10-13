@@ -35,20 +35,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut camera_y = 0;
 
     loop {
-        let mut half_height = 1;
+        let mut term_width = 1;
+        let mut term_height = 1;
         terminal.draw(|f| {
-            let size = f.size();
-            let width = size.width as usize;
-            let height = size.height as usize;
+            let area = f.area();
+            term_width = area.width as usize;
+            term_height = area.height as usize;
 
-            half_height = height / 2;
-
-            let map_str = render_map(&noise_map, camera_x, camera_y, width, height);
+            let map_str = render_map(&noise_map, camera_x, camera_y, term_width, term_height);
 
             let paragraph = Paragraph::new(map_str).block(Block::default());
 
-            f.render_widget(paragraph, size);
+            f.render_widget(paragraph, area);
         })?;
+
+        let half_height = term_height / 2;
+
+        let height = MAP_HEIGHT - term_height;
+        let width = MAP_HEIGHT - term_width;
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -56,10 +60,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     KeyCode::Char('q') => break,
                     KeyCode::Char('d') => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            if camera_y < MAP_HEIGHT - half_height {
+                            if camera_y < height - half_height {
                                 camera_y += half_height;
-                            } else if camera_y < MAP_HEIGHT {
-                                camera_y = MAP_HEIGHT;
+                            } else if camera_y < height {
+                                camera_y = height;
                             }
                         }
                     }
@@ -78,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     KeyCode::Char('l') | KeyCode::Right => {
-                        if camera_x < MAP_WIDTH - 1 {
+                        if camera_x < width {
                             camera_x += 1;
                         }
                     }
@@ -88,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     KeyCode::Char('j') | KeyCode::Down => {
-                        if camera_y < MAP_HEIGHT - 1 {
+                        if camera_y < height {
                             camera_y += 1;
                         }
                     }
