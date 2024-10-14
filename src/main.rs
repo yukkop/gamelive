@@ -10,6 +10,8 @@ use std::io;
 
 const MAP_WIDTH: usize = 200;
 const MAP_HEIGHT: usize = 200;
+const RULLER_LEFT_SIZE: usize = 4;
+const RULLER_UP_SIZE: usize = 2;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     CombinedLogger::init(
@@ -29,20 +31,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let noise_map = generate_noise_map();
+    let noise_map = empty_map();
 
     let mut camera_x = 0;
     let mut camera_y = 0;
+    let mut term_width = 1;
+    let mut term_height = 1;
+    let mut show_ruller = true;
 
     loop {
-        let mut term_width = 1;
-        let mut term_height = 1;
         terminal.draw(|f| {
             let area = f.area();
             term_width = area.width as usize;
             term_height = area.height as usize;
 
-            let map_str = render_map(&noise_map, camera_x, camera_y, term_width, term_height);
+            let map_str = render_map(&noise_map, camera_x, camera_y, term_width, term_height, show_ruller);
 
             let paragraph = Paragraph::new(map_str).block(Block::default());
 
@@ -51,8 +54,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let half_height = term_height / 2;
 
-        let height = MAP_HEIGHT - term_height;
-        let width = MAP_HEIGHT - term_width;
+        let (width, height) = if show_ruller {
+            (MAP_WIDTH.saturating_sub(term_width - RULLER_LEFT_SIZE),
+            MAP_HEIGHT.saturating_sub(term_height - RULLER_UP_SIZE))
+        } else {
+            (MAP_WIDTH.saturating_sub(term_width),
+            MAP_HEIGHT.saturating_sub(term_height))
+        };
+
+        if camera_y > height { camera_y = height }
+        if camera_x > width { camera_x = width }
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -74,6 +85,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             } else if camera_y > 0 {
                                 camera_y = 0;
                             }
+                        }
+                    }
+                    KeyCode::Char('r') => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL) {
+                            show_ruller = !show_ruller;
                         }
                     }
                     KeyCode::Char('h') | KeyCode::Left => {
@@ -124,11 +140,20 @@ fn generate_noise_map() -> Vec<Vec<f64>> {
     map
 }
 
+fn empty_map() -> Vec<Vec<f64>> {
+    let mut map = vec![vec![0.; MAP_WIDTH]; MAP_HEIGHT];
+
+    map[0][0] = 1.;
+    map[MAP_WIDTH - 1][MAP_HEIGHT - 1] = 1.;
+    map[MAP_WIDTH - 5][MAP_HEIGHT - 2] = 1.;
+    map[MAP_WIDTH - 10][MAP_HEIGHT - 10] = 1.;
+
+    map
+}
+
 fn get_char_for_value(value: f64) -> char {
     match value {
-        v if v < -0.5 => '░', // Deep water
-        v if v < 0.0 => '▒',  // Shallow water
-        v if v < 0.5 => '▓',  // Land
+        v if v <= 0. => '░', // Deep water
         _ => '█',             // Mountain
     }
 }
@@ -139,13 +164,47 @@ fn render_map(
     camera_y: usize,
     width: usize,
     height: usize,
+    show_ruller: bool,
 ) -> String {
     let mut visible_map = String::new();
 
-    for y in 0..height {
-        for x in 0..width {
+    // Adjust width and height to account for rulers
+    let (map_width, map_height) = if show_ruller {
+        (width - RULLER_LEFT_SIZE, height - RULLER_UP_SIZE)
+    } else {
+        (width, height)
+    };
+
+    // Top ruler (X-axis)
+    if show_ruller {
+        visible_map.push_str(" ".repeat(RULLER_LEFT_SIZE).as_str()); // Space for Y-axis labels
+        for x in 0..map_width {
             let map_x = x + camera_x;
-            let map_y = y + camera_y;
+            if map_x % 10 == 0 {
+                let label = format!("{:>2}", map_x % 100);
+                visible_map.push_str(&label);
+            } else {
+                visible_map.push_str("  ");
+            }
+        }
+        visible_map.push('\n');
+    }
+
+    for y in 0..map_height {
+        let map_y = y + camera_y;
+
+        // Left ruler (Y-axis)
+        if show_ruller {
+            if map_y % 5 == 0 {
+                let label = format!("{:>3} ", map_y % 100);
+                visible_map.push_str(&label);
+            } else {
+                visible_map.push_str(" ".repeat(RULLER_LEFT_SIZE).as_str());
+            }
+        }
+
+        for x in 0..map_width {
+            let map_x = x + camera_x;
 
             if map_y < MAP_HEIGHT && map_x < MAP_WIDTH {
                 let value = map[map_y][map_x];
@@ -155,9 +214,7 @@ fn render_map(
                 visible_map.push(' ');
             }
         }
-        if y < height - 1 {
-            visible_map.push('\n');
-        }
+        visible_map.push('\n');
     }
 
     visible_map
