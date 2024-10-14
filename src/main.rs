@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use noise::{NoiseFn, Perlin};
 use ratatui::backend::CrosstermBackend;
@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let noise_map = empty_map();
+    let mut noise_map = empty_map();
 
     let mut camera_x = 0;
     let mut camera_y = 0;
@@ -66,54 +66,74 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if camera_x > width { camera_x = width }
 
         if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Char('d') => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            if camera_y < height - half_height {
-                                camera_y += half_height;
-                            } else if camera_y < height {
-                                camera_y = height;
+            match event::read()? {
+                Event::Key(key) => {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('d') => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                if camera_y < height - half_height {
+                                    camera_y += half_height;
+                                } else if camera_y < height {
+                                    camera_y = height;
+                                }
                             }
                         }
-                    }
-                    KeyCode::Char('u') => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            if camera_y > half_height {
-                                camera_y -= half_height;
-                            } else if camera_y > 0 {
-                                camera_y = 0;
+                        KeyCode::Char('u') => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                if camera_y > half_height {
+                                    camera_y -= half_height;
+                                } else if camera_y > 0 {
+                                    camera_y = 0;
+                                }
                             }
                         }
-                    }
-                    KeyCode::Char('r') => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            show_ruller = !show_ruller;
+                        KeyCode::Char('r') => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                show_ruller = !show_ruller;
+                            }
                         }
-                    }
-                    KeyCode::Char('h') | KeyCode::Left => {
-                        if camera_x > 0 {
-                            camera_x -= 1;
+                        KeyCode::Char('h') | KeyCode::Left => {
+                            if camera_x > 0 {
+                                camera_x -= 1;
+                            }
                         }
-                    }
-                    KeyCode::Char('l') | KeyCode::Right => {
-                        if camera_x < width {
-                            camera_x += 1;
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            if camera_x < width {
+                                camera_x += 1;
+                            }
                         }
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        if camera_y > 0 {
-                            camera_y -= 1;
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            if camera_y > 0 {
+                                camera_y -= 1;
+                            }
                         }
-                    }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        if camera_y < height {
-                            camera_y += 1;
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            if camera_y < height {
+                                camera_y += 1;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
-                }
+                },
+                Event::Mouse(mouse_event) => {
+                    //match mouse_event.kind {
+                    //    MouseEventKind::Down(_) => {
+                    //        handle_mouse_click(
+                    //            mouse_event.column,
+                    //            mouse_event.row,
+                    //            &mut noise_map,
+                    //            camera_x,
+                    //            camera_y,
+                    //            width,
+                    //            height,
+                    //        );
+                    //    },
+                    //    _ => {}
+                    //}
+
+                },
+                _ => {}
             }
         }
     }
@@ -122,6 +142,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     crossterm::execute!(io::stdout(), crossterm::terminal::LeaveAlternateScreen)?;
 
     Ok(())
+}
+
+fn handle_mouse_click(
+    mouse_x: u16,
+    mouse_y: u16,
+    map: &mut Vec<Vec<f64>>,
+    camera_x: usize,
+    camera_y: usize,
+    width: usize,
+    height: usize,
+) {
+    // Adjust mouse coordinates to map indices
+    let map_x = mouse_x as usize - 4 + camera_x; // Subtract ruler width and add camera offset
+    let map_y = mouse_y as usize - 1 + camera_y; // Subtract ruler height and add camera offset
+
+    // Check if the click is within the map area
+    if map_x < MAP_WIDTH && map_y < MAP_HEIGHT {
+        // Modify the map data at the clicked position
+        map[map_y][map_x] = 1.0; // For example, set to maximum value (mountain)
+    }
 }
 
 fn generate_noise_map() -> Vec<Vec<f64>> {
