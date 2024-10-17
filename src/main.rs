@@ -199,7 +199,7 @@ fn draw_on_map(
     value: f64,
 ) {
    if map_x < MAP_WIDTH && map_y < MAP_HEIGHT {
-       map[map_x][map_y] = value;
+       map[map_y][map_x] = value;
    }
 }
 
@@ -227,15 +227,11 @@ fn handle_left_click(
     camera_y: usize,
     show_ruller: bool,
 ) {
-    let adj_mouse_x = mouse_x as isize - RULLER_LEFT_SIZE as isize;
-    let adj_mouse_y = mouse_y as isize - RULLER_UP_SIZE as isize;
+    let (adj_mouse_x, adj_mouse_y) = calc_adj_mouse(mouse_x, mouse_y, show_ruller);
     if adj_mouse_x >= 0 && adj_mouse_y >= 0 {
         let map_x = (adj_mouse_x as usize) + camera_x;
         let map_y = (adj_mouse_y as usize) + camera_y;
-
-        if map_x < MAP_WIDTH && map_y < MAP_HEIGHT {
-            map[map_y][map_x] = 1.0;
-        }
+        draw_on_map(map, map_x, map_y, 1.);
     }
 }
 
