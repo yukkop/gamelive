@@ -3,6 +3,7 @@ use crossterm::event::{
 };
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use noise::{NoiseFn, Perlin};
+use rand::Rng;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -12,12 +13,45 @@ use ratatui::Terminal;
 use simplelog::{CombinedLogger, Config, LevelFilter, WriteLogger};
 use std::fs::File;
 use std::io;
+use std::time::{Duration, Instant};
 
 const MAP_WIDTH: usize = 200;
 const MAP_HEIGHT: usize = 200;
 const RULLER_LEFT_SIZE: usize = 4;
 const RULLER_UP_SIZE: usize = 1;
 const RULLER_DOWN_SIZE: usize = 1;
+
+const FILLED: char = '█';
+const EMPTY: char = '░';
+
+const TARGET_FPS: u32 = 60;
+const FRAME_DURATION: Duration = Duration::from_micros(1_000_000 / TARGET_FPS as u64);
+
+struct Point {
+  x: usize,
+  y: usize,
+}
+
+#[derive(PartialEq, Eq)]
+enum GameState {
+  Draw,
+  Run,
+}
+
+impl GameState {
+  fn togle_pause(&mut self) {
+    if *self == GameState::Run {
+      *self = GameState::Draw;
+    } else {
+      *self = GameState::Run
+    }
+  }
+}
+
+fn random_field() -> Point {
+    let mut rng = rand::thread_rng();
+    Point {x: rng.gen_range(0..MAP_WIDTH), y: rng.gen_range(0..MAP_HEIGHT)}
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     CombinedLogger::init(vec![WriteLogger::new(
@@ -35,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut noise_map = empty_map();
+    let mut map = empty_map();
 
     let mut camera_x = 0;
     let mut camera_y = 0;
@@ -43,135 +77,196 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut term_height = 1;
     let mut show_ruller = true;
     let mut show_help = true;
+    let mut game_state = GameState::Draw;
+    let mut last_frame = Instant::now();
 
-    loop {
-        terminal.draw(|f| {
-            let area = f.area();
-            term_width = area.width as usize;
-            term_height = area.height as usize;
+    'main_loop:loop {
+        let now = Instant::now();
+        let elapsed = now.duration_since(last_frame);
 
-            let map_str = render_map(
-                &noise_map,
-                camera_x,
-                camera_y,
-                term_width,
-                term_height,
-                show_ruller,
-            );
+        if elapsed >= FRAME_DURATION {
+            match game_state {
+                GameState::Run => {
+                  let point = random_field();
+                  draw_on_map(&mut map, point.x, point.y, 1.);
+                  //for y in 0..MAP_HEIGHT {
+                  //    for x in 0..MAP_WIDTH {
+                  //        const NEIGHBORS: [(isize, isize); 8] = [
+                  //            (-1, -1), (-1, 0), (-1, 1),
+                  //            (0, -1),          (0, 1),
+                  //            (1, -1),  (1, 0),  (1, 1)];
 
-            let paragraph = Paragraph::new(map_str).block(Block::default());
+                  //        let mut neighbords_count = 0;
 
-            f.render_widget(paragraph, area);
+                  //        for (dx, dy) in NEIGHBORS {
+                  //            let x = (x as isize + dx) % 20;
+                  //            let y = (y as isize + dy) % 20;
 
-            if show_help {
-                let help_area = centered_rect(60, 60, area);
-                f.render_widget(Clear, help_area); 
-                let help_paragraph = create_help_paragraph();
-                f.render_widget(help_paragraph, help_area);
-            }
-        })?;
+                  //            if 0 <= x && x < (MAP_WIDTH - 1) as isize 
+                  //                && 0 <= y && y < (MAP_HEIGHT - 1) as isize {
+                  //                neighbords_count += 1;
+                  //            }
+                  //        }
 
-        let half_height = term_height / 2;
+                  //        log::info!("neighbords_count: {}", neighbords_count);
 
-        let (width, height) = if show_ruller {
-            (
-                MAP_WIDTH.saturating_sub(term_width - RULLER_LEFT_SIZE),
-                MAP_HEIGHT.saturating_sub(term_height - RULLER_UP_SIZE),
-            )
-        } else {
-            (
-                MAP_WIDTH.saturating_sub(term_width),
-                MAP_HEIGHT.saturating_sub(term_height),
-            )
-        };
+                  //        if neighbords_count < 2 || 3 < neighbords_count {
+                  //            draw_on_map(&mut map, x, y, 0.);
+                  //        }
+                  //        if neighbords_count == 3 {
+                  //            draw_on_map(&mut map, x, y, 1.);
+                  //        }
+                  //    }
+                  //}
+                }
+                _ => { }
+            };
+            
+            terminal.draw(|f| {
+                let area = f.area();
+                term_width = area.width as usize;
+                term_height = area.height as usize;
 
-        if camera_y > height {
-            camera_y = height
+                let map_str = render_map(
+                    &map,
+                    camera_x,
+                    camera_y,
+                    term_width,
+                    term_height,
+                    show_ruller,
+                );
+
+                let paragraph = Paragraph::new(map_str).block(Block::default());
+
+                f.render_widget(paragraph, area);
+
+                if show_help {
+                    let help_area = centered_rect(60, 60, area);
+                    f.render_widget(Clear, help_area); 
+                    let help_paragraph = create_help_paragraph();
+                    f.render_widget(help_paragraph, help_area);
+                }
+            })?;
         }
-        if camera_x > width {
-            camera_x = width
+
+        while event::poll(Duration::from_millis(0))? {
+             let half_height = term_height / 2;
+
+             let (width, height) = if show_ruller {
+                 (
+                     MAP_WIDTH.saturating_sub(term_width - RULLER_LEFT_SIZE),
+                     MAP_HEIGHT.saturating_sub(term_height - RULLER_UP_SIZE),
+                 )
+             } else {
+                 (
+                     MAP_WIDTH.saturating_sub(term_width),
+                     MAP_HEIGHT.saturating_sub(term_height),
+                 )
+             };
+
+             if camera_y > height {
+                 camera_y = height
+             }
+             if camera_x > width {
+                 camera_x = width
+             }
+
+             if event::poll(std::time::Duration::from_millis(100))? {
+                 match event::read()? {
+                     Event::Key(key) => match key.code {
+                         KeyCode::Char('q') => break 'main_loop,
+                         KeyCode::Char('d') => {
+                             if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                 if camera_y < height - half_height {
+                                     camera_y += half_height;
+                                 } else if camera_y < height {
+                                     camera_y = height;
+                                 }
+                             }
+                         }
+                         KeyCode::Char('u') => {
+                             if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                 if camera_y > half_height {
+                                     camera_y -= half_height;
+                                 } else if camera_y > 0 {
+                                     camera_y = 0;
+                                 }
+                             }
+                         }
+                         KeyCode::Char('r') => {
+                             if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                 show_ruller = !show_ruller;
+                             }
+                         }
+                         KeyCode::Char('h') | KeyCode::Left => {
+                             if camera_x > 0 {
+                                 camera_x -= 1;
+                             }
+                         }
+                         KeyCode::Char('l') | KeyCode::Right => {
+                             if camera_x < width {
+                                 camera_x += 1;
+                             }
+                         }
+                         KeyCode::Char('k') | KeyCode::Up => {
+                             if camera_y > 0 {
+                                 camera_y -= 1;
+                             }
+                         }
+                         KeyCode::Char('j') | KeyCode::Down => {
+                             if camera_y < height {
+                                 camera_y += 1;
+                             }
+                         }
+                         KeyCode::Char('?') => {
+                             show_help = !show_help;
+                         }
+                         KeyCode::Char(' ') => {
+                             game_state.togle_pause();
+                         }
+                         _ => {}
+                     },
+                     Event::Mouse(mouse_event) => {
+                         match game_state {
+                             GameState::Draw =>
+                             match mouse_event.kind {
+                                 MouseEventKind::Down(button) => match button {
+                                     MouseButton::Left => {
+                                         handle_left_click(
+                                             mouse_event.column,
+                                             mouse_event.row,
+                                             &mut map,
+                                             camera_x,
+                                             camera_y,
+                                             show_ruller,
+                                         );
+                                     }
+                                     MouseButton::Right => {
+                                         handle_right_click(
+                                             mouse_event.column,
+                                             mouse_event.row,
+                                             &mut map,
+                                             camera_x,
+                                             camera_y,
+                                             show_ruller,
+                                         );
+                                     }
+                                     _ => {}
+                                 },
+                                 _ => {}
+                             }
+                             _ => {}
+                         }
+                     },
+                     _ => {}
+                 }
+             }
         }
 
-        if event::poll(std::time::Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => match key.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Char('d') => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            if camera_y < height - half_height {
-                                camera_y += half_height;
-                            } else if camera_y < height {
-                                camera_y = height;
-                            }
-                        }
-                    }
-                    KeyCode::Char('u') => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            if camera_y > half_height {
-                                camera_y -= half_height;
-                            } else if camera_y > 0 {
-                                camera_y = 0;
-                            }
-                        }
-                    }
-                    KeyCode::Char('r') => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            show_ruller = !show_ruller;
-                        }
-                    }
-                    KeyCode::Char('h') | KeyCode::Left => {
-                        if camera_x > 0 {
-                            camera_x -= 1;
-                        }
-                    }
-                    KeyCode::Char('l') | KeyCode::Right => {
-                        if camera_x < width {
-                            camera_x += 1;
-                        }
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        if camera_y > 0 {
-                            camera_y -= 1;
-                        }
-                    }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        if camera_y < height {
-                            camera_y += 1;
-                        }
-                    }
-                    KeyCode::Char('?') => {
-                        show_help = !show_help;
-                    }
-                    _ => {}
-                },
-                Event::Mouse(mouse_event) => match mouse_event.kind {
-                    MouseEventKind::Down(button) => match button {
-                        MouseButton::Left => {
-                            handle_left_click(
-                                mouse_event.column,
-                                mouse_event.row,
-                                &mut noise_map,
-                                camera_x,
-                                camera_y,
-                                show_ruller,
-                            );
-                        }
-                        MouseButton::Right => {
-                            handle_right_click(
-                                mouse_event.column,
-                                mouse_event.row,
-                                &mut noise_map,
-                                camera_x,
-                                camera_y,
-                                show_ruller,
-                            );
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                },
-                _ => {}
-            }
+        
+        let frame_elapsed = Instant::now().duration_since(now);
+        if frame_elapsed < FRAME_DURATION {
+            std::thread::sleep(FRAME_DURATION - frame_elapsed);
         }
     }
 
@@ -264,8 +359,8 @@ fn empty_map() -> Vec<Vec<f64>> {
 
 fn get_char_for_value(value: f64) -> char {
     match value {
-        v if v <= 0. => '░', // Deep water
-        _ => '█',            // Mountain
+        v if v <= 0. => EMPTY,
+        _ => FILLED,
     }
 }
 
